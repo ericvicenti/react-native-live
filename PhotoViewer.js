@@ -7,6 +7,7 @@ import {
   Image,
   FlatList,
   TouchableOpacity,
+  ScrollView,
   Dimensions,
   TouchableWithoutFeedback
 } from "react-native";
@@ -14,32 +15,102 @@ import {
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
-const PhotoPane = ({ photo, width, height }) =>
-  <Animated.View
-    style={[
-      styles.innerPane,
-      {
-        width,
-        height
-      }
-    ]}
-  >
-    <Animated.Image
-      style={{ width, height }}
-      source={photo.source}
-      resizeMode="contain"
-    />
-  </Animated.View>;
+class PhotoPane extends React.Component {
+  _handlePhotoTap = () => {
+    const { width, height, onToggleOverlay } = this.props;
+    this._scrollView &&
+      this._scrollView.scrollResponderZoomTo({
+        x: 0,
+        y: 0,
+        width: width.__getValue(),
+        height: height.__getValue()
+      });
+    onToggleOverlay();
+  };
+  render() {
+    const { photo, width, height, onToggleOverlay } = this.props;
+    return (
+      <Animated.View
+        style={[
+          styles.innerPane,
+          {
+            width,
+            height
+          }
+        ]}
+      >
+        <ScrollView
+          ref={sv => {
+            this._scrollView = sv;
+          }}
+          horizontal={true}
+          alwaysBounceHorizontal={true}
+          alwaysBounceVertical={true}
+          maximumZoomScale={3}
+          style={StyleSheet.absoluteFill}
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          centerContent
+        >
+          <TouchableWithoutFeedback onPress={this._handlePhotoTap}>
+            <Animated.Image
+              style={{
+                width,
+                height
+              }}
+              source={photo.source}
+              resizeMode="contain"
+            />
+          </TouchableWithoutFeedback>
+        </ScrollView>
+      </Animated.View>
+    );
+  }
+}
 
 class InnerViewer extends React.Component {
   state = {
     width: new Animated.Value(SCREEN_WIDTH),
-    height: new Animated.Value(SCREEN_HEIGHT)
+    height: new Animated.Value(SCREEN_HEIGHT),
+    overlayOpacity: new Animated.Value(this.props.isOverlayOpen ? 1 : 0)
   };
+
+  onToggleOverlay = () => {
+    this.props.setOverlay(!this.props.isOverlayOpen);
+  };
+
+  componentDidUpdate(lastProps) {
+    if (lastProps.isOverlayOpen !== this.props.isOverlayOpen) {
+      Animated.timing(this.state.overlayOpacity, {
+        toValue: this.props.isOverlayOpen ? 1 : 0
+      }).start();
+    }
+  }
+
   render() {
-    const { onClose, photos, photoKey, onPhotoKeyChange } = this.props;
+    const {
+      onClose,
+      photos,
+      photoKey,
+      onPhotoKeyChange,
+      renderOverlay,
+      setOverlay
+    } = this.props;
+
+    let overlay = (
+      <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+        <Text style={styles.closeText}>Close</Text>
+      </TouchableOpacity>
+    );
+
+    const photo = photos.find(p => p.key === photoKey);
+
+    if (renderOverlay) {
+      overlay = renderOverlay({ photo, onClose });
+    }
+
     const initialIndex = photos.findIndex(p => p.key === photoKey);
-    const { width, height } = this.state;
+    const { width, height, overlayOpacity } = this.state;
     return (
       <Animated.View
         style={styles.viewer}
@@ -63,9 +134,6 @@ class InnerViewer extends React.Component {
           }
         )}
       >
-        {/* onLayout={e => {
-          console.log({ ...e.nativeEvent.layout.height });
-        }} */}
         <FlatList
           ref={fl => {
             this.flatList = fl;
@@ -82,7 +150,14 @@ class InnerViewer extends React.Component {
             }
           }}
           renderItem={({ item }) => {
-            return <PhotoPane photo={item} width={width} height={height} />;
+            return (
+              <PhotoPane
+                onToggleOverlay={this.onToggleOverlay}
+                photo={item}
+                width={width}
+                height={height}
+              />
+            );
           }}
           getItemLayout={(data, index) => ({
             length: width.__getValue(),
@@ -91,17 +166,31 @@ class InnerViewer extends React.Component {
           })}
           initialScrollIndex={initialIndex}
         />
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeText}>Close</Text>
-        </TouchableOpacity>
+        <Animated.View
+          pointerEvents="box-none"
+          style={[{ opacity: overlayOpacity }, StyleSheet.absoluteFill]}
+        >
+          {overlay}
+        </Animated.View>
       </Animated.View>
     );
   }
 }
 
+class PhotoViewerPhoto extends React.Component {
+  render() {
+    const { style, photo } = this.props;
+    return <Image style={style} source={photo.source} />;
+  }
+}
+
 export default class PhotoViewer extends React.Component {
+  static Photo = PhotoViewerPhoto;
+
   state = {
-    photos: null
+    photos: null,
+    key: null,
+    isOverlayOpen: true
   };
 
   open = (photos, key) => {
@@ -111,12 +200,18 @@ export default class PhotoViewer extends React.Component {
   close = () => {
     this.setState({ photos: null, key: null });
   };
+
   changePhoto = key => {
     this.setState({ key });
   };
-  render() {
-    const { photos, key } = this.state;
 
+  setOverlay = isOverlayOpen => {
+    this.setState({ isOverlayOpen });
+  };
+
+  render() {
+    const { photos, key, isOverlayOpen } = this.state;
+    const { renderOverlay } = this.props;
     return (
       <View style={{ flex: 1 }}>
         {this.props.renderContent({ onPhotoOpen: this.open })}
@@ -125,6 +220,9 @@ export default class PhotoViewer extends React.Component {
             photos={photos}
             photoKey={key}
             onClose={this.close}
+            renderOverlay={renderOverlay}
+            isOverlayOpen={isOverlayOpen}
+            setOverlay={this.setOverlay}
             onPhotoKeyChange={this.changePhoto}
           />}
       </View>
@@ -133,8 +231,9 @@ export default class PhotoViewer extends React.Component {
 }
 
 const styles = StyleSheet.create({
-  closeText: { color: "white" },
+  closeText: { color: "white", backgroundColor: "transparent" },
   closeButton: {
+    backgroundColor: "rgba(0,0,0,0.5)",
     position: "absolute",
     top: 20,
     left: 20,

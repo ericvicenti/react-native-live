@@ -5,9 +5,20 @@ import {
   View,
   Image,
   ScrollView,
+  TouchableOpacity,
   TouchableWithoutFeedback
 } from "react-native";
 import PhotoViewer from "./PhotoViewer";
+
+const TouchableWithoutFeedbackForCompositeComponents = ({
+  onPress,
+  children
+}) =>
+  <TouchableWithoutFeedback onPress={onPress}>
+    <View>
+      {children}
+    </View>
+  </TouchableWithoutFeedback>;
 
 const PHOTOS = [
   {
@@ -40,13 +51,46 @@ const PHOTOS = [
   }
 ];
 
-// PHOTOS.map(photo => Image.prefetch(photo.source.uri));
+class BearOverlay extends React.Component {
+  render() {
+    const { photo, onClose } = this.props;
+    return (
+      <View
+        pointerEvents="box-none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: "transparent" }]}
+      >
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Text style={styles.closeText}>Close</Text>
+        </TouchableOpacity>
+        <View style={styles.overlayButtons}>
+          <TouchableOpacity onPress={() => {}} style={styles.button}>
+            <Text style={styles.buttonText}>
+              Scary {photo.key}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => {}} style={styles.button}>
+            <Text style={styles.buttonText}>
+              Cuddly {photo.key}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+}
+
+class PhotoViewerPhoto extends React.Component {
+  render() {
+    const { style, photo } = this.props;
+    return <Image style={style} source={photo.source} />;
+  }
+}
 
 const Item = ({ photo, onPress }) =>
   <View style={styles.item}>
-    <TouchableWithoutFeedback onPress={onPress}>
-      <Image style={{ width: 300, height: 300 }} source={photo.source} />
-    </TouchableWithoutFeedback>
+    <TouchableWithoutFeedbackForCompositeComponents onPress={onPress}>
+      <PhotoViewerPhoto style={{ width: 300, height: 300 }} photo={photo} />
+    </TouchableWithoutFeedbackForCompositeComponents>
     <Text style={styles.caption}>
       {photo.caption}
     </Text>
@@ -54,18 +98,10 @@ const Item = ({ photo, onPress }) =>
 
 export default class App extends React.Component {
   render() {
-    // REJECTED API #1: REFS API
-    // <PhotoViewer ref={v => { this.photoviewer = v; }}>
-    //   <ScrollView >
-    //     <Item onPress={() => { this.photoviewer.openPhoto(); }}
-
-    // REJECTED API #2: GLOBALS
-    // <PhotoViewer>
-    //   <ScrollView >
-    //     <Item onPress={() => { PhotoViewer.openPhoto(); }}
-
     return (
       <PhotoViewer
+        renderOverlay={({ photo, onClose }) =>
+          <BearOverlay photo={photo} onClose={onClose} />}
         renderContent={({ onPhotoOpen }) =>
           <ScrollView style={styles.container}>
             {PHOTOS.map(photo =>
@@ -94,5 +130,35 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#333",
     alignItems: "center"
+  },
+  closeText: { color: "white", backgroundColor: "transparent" },
+  closeButton: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    position: "absolute",
+    top: 20,
+    left: 20,
+    borderWidth: 1,
+    borderColor: "white",
+    padding: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "white",
+    borderRadius: 5
+  },
+  overlayButtons: {
+    position: "absolute",
+    left: 0,
+    bottom: 0,
+    right: 0,
+    height: 50,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "white",
+    flexDirection: "row"
+  },
+  button: { flex: 1, alignItems: "center", justifyContent: "center" },
+  buttonText: {
+    color: "white",
+    backgroundColor: "transparent",
+    fontSize: 20,
+    fontWeight: "600"
   }
 });
