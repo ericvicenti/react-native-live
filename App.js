@@ -15,39 +15,55 @@ const TouchableWithoutFeedbackForCompositeComponents = ({
   children
 }) =>
   <TouchableWithoutFeedback onPress={onPress}>
-    <View>
+    <View style={{ flex: 1 }}>
       {children}
     </View>
   </TouchableWithoutFeedback>;
 
-const PHOTOS = [
+const MAIN_PHOTOS = [
   {
-    key: "a",
+    key: "first",
     width: 300,
     height: 200,
     source: { uri: "https://placebear.com/200/300", cache: "force-cache" },
     caption: "Grizzly"
   },
   {
-    key: "b",
+    key: "second",
     width: 200,
     height: 1000,
     source: { uri: "https://placebear.com/200/1000", cache: "force-cache" },
     caption: "Grizzly"
   },
   {
-    key: "c",
+    key: "third",
     width: 300,
     height: 50,
     source: { uri: "https://placebear.com/300/50", cache: "force-cache" },
     caption: "Grizzly"
-  },
+  }
+];
+const EXTRA_PHOTOS = [
   {
-    key: "d",
+    key: "extra-1",
     width: 200,
     height: 200,
-    source: { uri: "https://placebear.com/200/200", cache: "force-cache" },
-    caption: "Grizzly"
+    source: { uri: "https://placebear.com/200/201", cache: "force-cache" }
+  },
+  {
+    key: "extra-2",
+    width: 200,
+    height: 200,
+    source: { uri: "https://placebear.com/200/200", cache: "force-cache" }
+  }
+];
+
+const FEED_ITEMS = [
+  ...MAIN_PHOTOS,
+  {
+    key: "two",
+    caption: "two grizzlies",
+    photos: EXTRA_PHOTOS
   }
 ];
 
@@ -79,20 +95,26 @@ class BearOverlay extends React.Component {
   }
 }
 
-class PhotoViewerPhoto extends React.Component {
-  render() {
-    const { style, photo } = this.props;
-    return <Image style={style} source={photo.source} />;
-  }
-}
-
-const Item = ({ photo, onPress }) =>
+const Item = ({ item, mainPhotos, onPhotoOpen }) =>
   <View style={styles.item}>
-    <TouchableWithoutFeedbackForCompositeComponents onPress={onPress}>
-      <PhotoViewerPhoto style={{ width: 300, height: 300 }} photo={photo} />
-    </TouchableWithoutFeedbackForCompositeComponents>
+    {item.photos
+      ? <View style={{ flexDirection: "row", width: 300, height: 300 }}>
+          {item.photos.map(innerPhoto =>
+            <TouchableWithoutFeedbackForCompositeComponents
+              key={innerPhoto.key}
+              onPress={() => onPhotoOpen(item.photos, innerPhoto.key)}
+            >
+              <PhotoViewer.Photo style={{ flex: 1 }} photo={innerPhoto} />
+            </TouchableWithoutFeedbackForCompositeComponents>
+          )}
+        </View>
+      : <TouchableWithoutFeedbackForCompositeComponents
+          onPress={() => onPhotoOpen(mainPhotos, item.key)}
+        >
+          <PhotoViewer.Photo style={{ width: 300, height: 300 }} photo={item} />
+        </TouchableWithoutFeedbackForCompositeComponents>}
     <Text style={styles.caption}>
-      {photo.caption}
+      {item.caption}
     </Text>
   </View>;
 
@@ -104,13 +126,12 @@ export default class App extends React.Component {
           <BearOverlay photo={photo} onClose={onClose} />}
         renderContent={({ onPhotoOpen }) =>
           <ScrollView style={styles.container}>
-            {PHOTOS.map(photo =>
+            {FEED_ITEMS.map(feedItem =>
               <Item
-                key={photo.key}
-                photo={photo}
-                onPress={() => {
-                  onPhotoOpen(PHOTOS, photo.key);
-                }}
+                key={feedItem.key}
+                item={feedItem}
+                mainPhotos={MAIN_PHOTOS}
+                onPhotoOpen={onPhotoOpen}
               />
             )}
           </ScrollView>}

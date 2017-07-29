@@ -1,5 +1,6 @@
 import React from "react";
-import {
+import PropTypes from "prop-types";
+import ReactNative, {
   Animated,
   StyleSheet,
   Text,
@@ -28,7 +29,17 @@ class PhotoPane extends React.Component {
     onToggleOverlay();
   };
   render() {
-    const { photo, width, height, onToggleOverlay } = this.props;
+    const { photo, width, height, onToggleOverlay, onImageRef } = this.props;
+    const aspectRatio = photo.width / photo.height;
+    const maxWidth = width.__getValue();
+    const maxHeight = height.__getValue();
+    const screenAspectRatio = maxWidth / maxHeight;
+    let photoSize = null;
+    if (aspectRatio > screenAspectRatio) {
+      photoSize = { width: maxWidth, height: maxWidth / aspectRatio };
+    } else {
+      photoSize = { height: maxHeight, width: maxHeight * aspectRatio };
+    }
     return (
       <Animated.View
         style={[
@@ -47,21 +58,30 @@ class PhotoPane extends React.Component {
           alwaysBounceHorizontal={true}
           alwaysBounceVertical={true}
           maximumZoomScale={3}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill]}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
           centerContent
         >
-          <TouchableWithoutFeedback onPress={this._handlePhotoTap}>
-            <Animated.Image
-              style={{
-                width,
-                height
-              }}
-              source={photo.source}
-              resizeMode="contain"
-            />
-          </TouchableWithoutFeedback>
+          <Animated.View
+            style={{
+              width,
+              height,
+              justifyContent: "center",
+              alignItems: "center"
+            }}
+          >
+            <TouchableWithoutFeedback onPress={this._handlePhotoTap}>
+              <Animated.Image
+                style={{
+                  width: photoSize.width,
+                  height: photoSize.height
+                }}
+                ref={onImageRef}
+                source={photo.source}
+              />
+            </TouchableWithoutFeedback>
+          </Animated.View>
         </ScrollView>
       </Animated.View>
     );
@@ -74,6 +94,48 @@ class InnerViewer extends React.Component {
     height: new Animated.Value(SCREEN_HEIGHT),
     overlayOpacity: new Animated.Value(this.props.isOverlayOpen ? 1 : 0)
   };
+
+  _openingImageRef: ?Image = null;
+
+  componentDidMount() {
+    setTimeout(() => {
+      this._openingImageRef
+        .getNode()
+        .measure(
+          (destX, destY, destWidth, destHeight, destPageX, destPageY) => {
+            this.props.sourceImageRef.measure(
+              (
+                sourceX,
+                sourceY,
+                sourceWidth,
+                sourceHeight,
+                sourcePageX,
+                sourcePageY
+              ) => {
+                console.log({
+                  destX,
+                  destY,
+                  destWidth,
+                  destHeight,
+                  sourceX,
+                  sourceY,
+                  sourceWidth,
+                  sourceHeight,
+                  destPageX,
+                  destPageY,
+                  sourcePageX,
+                  sourcePageY
+                });
+
+                console.log(!!this.props.sourceImageRef);
+              },
+              console.error
+            );
+          },
+          console.error
+        );
+    });
+  }
 
   onToggleOverlay = () => {
     this.props.setOverlay(!this.props.isOverlayOpen);
@@ -113,7 +175,7 @@ class InnerViewer extends React.Component {
     const { width, height, overlayOpacity } = this.state;
     return (
       <Animated.View
-        style={styles.viewer}
+        style={[styles.viewer, { opacity: 0 }]}
         onLayout={Animated.event(
           [
             {
@@ -135,6 +197,7 @@ class InnerViewer extends React.Component {
         )}
       >
         <FlatList
+          scrollEnabled={false}
           ref={fl => {
             this.flatList = fl;
           }}
@@ -152,6 +215,11 @@ class InnerViewer extends React.Component {
           renderItem={({ item }) => {
             return (
               <PhotoPane
+                onImageRef={i => {
+                  if (item === photo) {
+                    this._openingImageRef = i;
+                  }
+                }}
                 onToggleOverlay={this.onToggleOverlay}
                 photo={item}
                 width={width}
@@ -178,11 +246,31 @@ class InnerViewer extends React.Component {
 }
 
 class PhotoViewerPhoto extends React.Component {
+  static contextTypes = {
+    onImageRef: PropTypes.func
+  };
   render() {
     const { style, photo } = this.props;
-    return <Image style={style} source={photo.source} />;
+    return (
+      <Image
+        style={style}
+        source={photo.source}
+        ref={i => {
+          this.context.onImageRef(photo.key, i);
+        }}
+      />
+    );
   }
 }
+
+type PhotoSource = { uri: string, cache: "force-cache" };
+
+type Photo = {
+  key: string,
+  width: number,
+  height: number,
+  source: PhotoSource
+};
 
 export default class PhotoViewer extends React.Component {
   static Photo = PhotoViewerPhoto;
@@ -191,6 +279,20 @@ export default class PhotoViewer extends React.Component {
     photos: null,
     key: null,
     isOverlayOpen: true
+  };
+
+  _images: { [key: string]: Image } = {};
+
+  static childContextTypes = {
+    onImageRef: PropTypes.func
+  };
+
+  getChildContext() {
+    return { onImageRef: this._onImageRef };
+  }
+
+  _onImageRef = (key, imageRef) => {
+    this._images[key] = imageRef;
   };
 
   open = (photos, key) => {
@@ -219,6 +321,7 @@ export default class PhotoViewer extends React.Component {
           <InnerViewer
             photos={photos}
             photoKey={key}
+            sourceImageRef={this._images[key]}
             onClose={this.close}
             renderOverlay={renderOverlay}
             isOverlayOpen={isOverlayOpen}
@@ -237,8 +340,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 20,
     left: 20,
-    borderWidth: 1,
-    borderColor: "white",
     padding: 20,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "white",
