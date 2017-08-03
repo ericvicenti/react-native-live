@@ -72,7 +72,7 @@ class PhotoPane extends React.Component {
       photo,
       width,
       height,
-      onImageRef,
+      onImageLayout,
       openProgress,
       onZoomEnd,
       onZoomStart
@@ -145,7 +145,22 @@ class PhotoPane extends React.Component {
                     width: photoSize.width,
                     height: photoSize.height
                   }}
-                  ref={onImageRef}
+                  ref={i => {
+                    this._image = i;
+                  }}
+                  onLayout={() => {
+                    this._image &&
+                      this._image
+                        .getNode()
+                        .measure((x, y, width, height, pageX, pageY) => {
+                          onImageLayout({
+                            width,
+                            height,
+                            x: pageX,
+                            y: pageY
+                          });
+                        });
+                  }}
                   source={photo.source}
                 />
               </Animated.View>
@@ -163,53 +178,25 @@ class InnerViewer extends React.Component {
     height: new Animated.Value(SCREEN_HEIGHT),
     overlayOpacity: new Animated.Value(this.props.isOverlayOpen ? 1 : 0),
     openProgress: new Animated.Value(0),
-    openMeasurements: null,
+    srcImageMeasurements: null,
+    destImageMeasurements: null,
     canScrollHorizontal: true
   };
 
-  _openingImageRef: ?Image = null;
-
   componentDidMount() {
-    this.props.sourceImageOpacitySetter(
+    const { setOpacity, measurer } = this.props.getSourceContext(
+      this.props.photoKey
+    );
+    setOpacity(
       this.state.openProgress.interpolate({
         inputRange: [0.005, 0.01, 0.99, 1],
         outputRange: [1, 0, 0, 1]
       })
     );
-    setTimeout(() => {
-      this._openingImageRef
-        .getNode()
-        .measure(
-          (destX, destY, destWidth, destHeight, destPageX, destPageY) => {
-            this.props.sourceImageRef
-              .getNode()
-              .measure(
-                (
-                  sourceX,
-                  sourceY,
-                  sourceWidth,
-                  sourceHeight,
-                  sourcePageX,
-                  sourcePageY
-                ) => {
-                  this.setState({
-                    openMeasurements: {
-                      destWidth,
-                      destHeight,
-                      sourceWidth,
-                      sourceHeight,
-                      destPageX,
-                      destPageY,
-                      sourcePageX,
-                      sourcePageY
-                    }
-                  });
-                },
-                console.error
-              );
-          },
-          console.error
-        );
+    const srcMeasured = measurer().then(measurements => {
+      this.setState({
+        srcImageMeasurements: measurements
+      });
     });
   }
 
@@ -234,7 +221,11 @@ class InnerViewer extends React.Component {
         toValue: this.props.isOverlayOpen ? 1 : 0
       }).start();
     }
-    if (!lastState.openMeasurements && this.state.openMeasurements) {
+    if (
+      !(lastState.srcImageMeasurements && lastState.destImageMeasurements) &&
+      this.state.destImageMeasurements &&
+      this.state.srcImageMeasurements
+    ) {
       Animated.timing(this.state.openProgress, {
         toValue: 1,
         duration: 800,
@@ -276,36 +267,37 @@ class InnerViewer extends React.Component {
       height,
       overlayOpacity,
       openProgress,
-      openMeasurements,
+      srcImageMeasurements,
+      destImageMeasurements,
       canScrollHorizontal
     } = this.state;
 
     let openingInitScale = 0;
     let openingInitTranslateX = 0;
     let openingInitTranslateY = 0;
-    if (openMeasurements) {
+    if (srcImageMeasurements && destImageMeasurements) {
       const aspectRatio = photo.width / photo.height;
       const screenAspectRatio = width.__getValue() / height.__getValue();
       if (aspectRatio - screenAspectRatio > 0) {
-        const maxDim = openMeasurements.destWidth;
-        const srcShortDim = openMeasurements.sourceHeight;
+        const maxDim = destImageMeasurements.width;
+        const srcShortDim = srcImageMeasurements.height;
         const srcMaxDim = srcShortDim * aspectRatio;
         openingInitScale = srcMaxDim / maxDim;
       } else {
-        const maxDim = openMeasurements.destHeight;
-        const srcShortDim = openMeasurements.sourceWidth;
+        const maxDim = destImageMeasurements.height;
+        const srcShortDim = srcImageMeasurements.width;
         const srcMaxDim = srcShortDim / aspectRatio;
         openingInitScale = srcMaxDim / maxDim;
       }
       const translateInitY =
-        openMeasurements.sourcePageY + openMeasurements.sourceHeight / 2;
+        srcImageMeasurements.y + srcImageMeasurements.height / 2;
       const translateDestY =
-        openMeasurements.destPageY + openMeasurements.destHeight / 2;
+        destImageMeasurements.y + destImageMeasurements.height / 2;
       openingInitTranslateY = translateInitY - translateDestY;
       const translateInitX =
-        openMeasurements.sourcePageX + openMeasurements.sourceWidth / 2;
+        srcImageMeasurements.x + srcImageMeasurements.width / 2;
       const translateDestX =
-        openMeasurements.destPageX + openMeasurements.destWidth / 2;
+        destImageMeasurements.x + destImageMeasurements.width / 2;
       openingInitTranslateX = translateInitX - translateDestX;
     }
 
@@ -341,21 +333,25 @@ class InnerViewer extends React.Component {
             }}
             style={styles.hScroll}
             horizontal={true}
+            alwaysBounceVertical={true}
             pagingEnabled={true}
             data={photos}
             initialNumToRender={1}
             onViewableItemsChanged={({ viewableItems }) => {
               const item = viewableItems[0];
-              if (item && item.key !== photoKey) {
+              if (!openProgress && item && item.key !== photoKey) {
                 onPhotoKeyChange(item.key);
               }
             }}
             renderItem={({ item }) => {
               return (
                 <PhotoPane
-                  onImageRef={i => {
-                    if (item === photo) {
-                      this._openingImageRef = i;
+                  onImageLayout={imageMeasurements => {
+                    if (item === photo && !destImageMeasurements) {
+                      console.log("setting");
+                      this.setState({
+                        destImageMeasurements: imageMeasurements
+                      });
                     }
                   }}
                   onZoomEnd={this._onZoomEnd}
@@ -385,7 +381,8 @@ class InnerViewer extends React.Component {
           </Animated.View>
         </Animated.View>
 
-        {openMeasurements &&
+        {srcImageMeasurements &&
+          destImageMeasurements &&
           openProgress &&
           <Animated.Image
             source={photo.source}
@@ -396,10 +393,10 @@ class InnerViewer extends React.Component {
               }),
               position: "absolute",
               backgroundColor: "green",
-              width: openMeasurements.destWidth,
-              height: openMeasurements.destHeight,
-              left: openMeasurements.destPageX,
-              top: openMeasurements.destPageY,
+              width: destImageMeasurements.width,
+              height: destImageMeasurements.height,
+              left: destImageMeasurements.x,
+              top: destImageMeasurements.y,
               transform: [
                 {
                   translateX: openProgress.interpolate({
@@ -434,8 +431,29 @@ class PhotoViewerPhoto extends React.Component {
   static contextTypes = {
     onSourceContext: PropTypes.func
   };
+  componentWillMount() {
+    const { photo } = this.props;
+    this.context.onSourceContext(photo.key, this.measure, this.setOpacity);
+  }
   setOpacity = opacity => {
     this.setState({ opacity });
+  };
+  measure = async () => {
+    if (!this._imageRef && !this._readyToMeasure) {
+      console.error("measuring before its ready!");
+    }
+    return new Promise((resolve, reject) => {
+      this._imageRef
+        .getNode()
+        .measure((imgX, imgY, imgWidth, imgHeight, imgPageX, imgPageY) => {
+          resolve({
+            width: imgWidth,
+            height: imgHeight,
+            x: imgPageX,
+            y: imgPageY
+          });
+        }, reject);
+    });
   };
   render() {
     const { style, photo } = this.props;
@@ -446,7 +464,10 @@ class PhotoViewerPhoto extends React.Component {
         resizeMode="cover"
         source={photo.source}
         ref={i => {
-          this.context.onSourceContext(photo.key, i, this.setOpacity);
+          this._imageRef = i;
+        }}
+        onLayout={() => {
+          this._readyToMeasure = true;
         }}
       />
     );
@@ -471,7 +492,7 @@ export default class PhotoViewer extends React.Component {
     isOverlayOpen: false
   };
 
-  _images: { [key: string]: Image } = {};
+  _imageMeasurers: { [key: string]: () => void } = {};
   _imageOpacitySetters: {
     [key: string]: (opacity: Animated.Value) => void
   } = {};
@@ -484,13 +505,21 @@ export default class PhotoViewer extends React.Component {
     return { onSourceContext: this._onSourceContext };
   }
 
-  _onSourceContext = (key, imageRef, setOpacity) => {
-    this._images[key] = imageRef;
+  _onSourceContext = (key, imageMeasurer, setOpacity) => {
+    this._imageMeasurers[key] = imageMeasurer;
     this._imageOpacitySetters[key] = setOpacity;
   };
 
+  _getSourceContext = (key: string) => {
+    return {
+      measurer: this._imageMeasurers[key],
+      setOpacity: this._imageOpacitySetters[key]
+    };
+  };
+
   open = (photos, key) => {
-    this.setState({ photos, key });
+    console.log("opening from tap ", key);
+    this.setState(() => ({ photos, key }));
   };
 
   close = () => {
@@ -508,6 +537,7 @@ export default class PhotoViewer extends React.Component {
   render() {
     const { photos, key, isOverlayOpen } = this.state;
     const { renderOverlay } = this.props;
+    console.log("photo viewer.. ", key);
     return (
       <View style={{ flex: 1 }}>
         {this.props.renderContent({ onPhotoOpen: this.open })}
@@ -515,8 +545,7 @@ export default class PhotoViewer extends React.Component {
           <InnerViewer
             photos={photos}
             photoKey={key}
-            sourceImageRef={this._images[key]}
-            sourceImageOpacitySetter={this._imageOpacitySetters[key]}
+            getSourceContext={this._getSourceContext}
             onClose={this.close}
             renderOverlay={renderOverlay}
             isOverlayOpen={isOverlayOpen}

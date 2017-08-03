@@ -57,6 +57,12 @@ const EXTRA_PHOTOS = [
     source: { uri: "https://placebear.com/200/200", cache: "force-cache" }
   }
 ];
+const EXTRA_PHOTO = {
+  key: "extra-3",
+  width: 200,
+  height: 200,
+  source: { uri: "https://placebear.com/200/204", cache: "force-cache" }
+};
 
 const FEED_ITEMS = [
   ...MAIN_PHOTOS,
@@ -64,6 +70,11 @@ const FEED_ITEMS = [
     key: "two",
     caption: "two grizzlies",
     photos: EXTRA_PHOTOS
+  },
+  {
+    key: "single",
+    caption: "single bear",
+    photos: [EXTRA_PHOTO]
   }
 ];
 
