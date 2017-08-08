@@ -333,6 +333,17 @@ class InnerViewer extends React.Component {
             }}
             style={styles.hScroll}
             horizontal={true}
+            scrollEventThrottle={32}
+            onScrollEndDrag={e => {
+              // Set threshold = 1/8 screen height
+              const SWIPE_UP_THRESHOLD = SCREEN_HEIGHT / 8;
+              const { y } = e.nativeEvent.contentOffset;
+
+              if (SWIPE_UP_THRESHOLD < Math.abs(y)) {
+                // Close photo viewer
+                onClose();
+              }
+            }}
             alwaysBounceVertical={true}
             pagingEnabled={true}
             data={photos}
