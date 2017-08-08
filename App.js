@@ -28,18 +28,19 @@ const MAIN_PHOTOS = [
     source: { uri: "https://placebear.com/200/300", cache: "force-cache" },
     caption: "Grizzly"
   },
-  {
-    key: "second",
-    width: 200,
-    height: 1000,
-    source: { uri: "https://placebear.com/200/1000", cache: "force-cache" },
-    caption: "Grizzly"
-  },
+
   {
     key: "third",
     width: 300,
     height: 50,
     source: { uri: "https://placebear.com/300/50", cache: "force-cache" },
+    caption: "Grizzly"
+  },
+  {
+    key: "second",
+    width: 200,
+    height: 1000,
+    source: { uri: "https://placebear.com/200/1000", cache: "force-cache" },
     caption: "Grizzly"
   }
 ];

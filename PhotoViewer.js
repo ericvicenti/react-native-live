@@ -111,7 +111,7 @@ class PhotoPane extends React.Component {
             ref={sv => {
               this._scrollView = sv;
             }}
-            horizontal={true}
+            horizontal={false}
             alwaysBounceHorizontal={true}
             alwaysBounceVertical={true}
             maximumZoomScale={3}
@@ -193,9 +193,33 @@ class InnerViewer extends React.Component {
         outputRange: [1, 0, 0, 1]
       })
     );
+    const { photos, photoKey } = this.props;
+    const height = this.state.height.__getValue();
+    const width = this.state.width.__getValue();
+    const photo = photos.find(p => p.key === photoKey);
+    const aspectRatio = photo.width / photo.height;
+    const screenAspectRatio = width / height;
+    let destWidth = width;
+    let destHeight = width / aspectRatio;
+    let destX = 0;
+    let destY = (height - photo.height) / 2;
+    if (aspectRatio - screenAspectRatio < 0) {
+      destHeight = height;
+      destWidth = height * aspectRatio;
+      destY = 0;
+      destX = (width - photo.width) / 2;
+    }
+    const destImageMeasurements = {
+      width: destWidth,
+      height: destHeight,
+      x: destX,
+      y: destY
+    };
+    console.log("computed layout", destImageMeasurements);
     const srcMeasured = measurer().then(measurements => {
       this.setState({
-        srcImageMeasurements: measurements
+        srcImageMeasurements: measurements,
+        destImageMeasurements
       });
     });
   }
@@ -326,53 +350,55 @@ class InnerViewer extends React.Component {
         )}
       >
         <Animated.View style={[styles.viewer, { opacity: openProgress }]}>
-          <FlatList
-            scrollEnabled={!openProgress && canScrollHorizontal}
-            ref={fl => {
-              this.flatList = fl;
-            }}
-            style={styles.hScroll}
-            horizontal={true}
-            alwaysBounceVertical={true}
-            pagingEnabled={true}
-            data={photos}
-            initialNumToRender={1}
-            onViewableItemsChanged={({ viewableItems }) => {
-              const item = viewableItems[0];
-              if (!openProgress && item && item.key !== photoKey) {
-                onPhotoKeyChange(item.key);
-              }
-            }}
-            renderItem={({ item }) => {
-              return (
-                <PhotoPane
-                  onImageLayout={imageMeasurements => {
-                    if (item === photo && !destImageMeasurements) {
-                      console.log("setting");
-                      this.setState({
-                        destImageMeasurements: imageMeasurements
-                      });
-                    }
-                  }}
-                  onZoomEnd={this._onZoomEnd}
-                  onZoomStart={this._onZoomStart}
-                  openProgress={openProgress}
-                  onToggleOverlay={this.onToggleOverlay}
-                  onShowOverlay={this.onShowOverlay}
-                  onHideOverlay={this.onHideOverlay}
-                  photo={item}
-                  width={width}
-                  height={height}
-                />
-              );
-            }}
-            getItemLayout={(data, index) => ({
-              length: width.__getValue(),
-              index,
-              offset: index * width.__getValue()
-            })}
-            initialScrollIndex={initialIndex}
-          />
+          <ScrollView>
+            <FlatList
+              scrollEnabled={!openProgress && canScrollHorizontal}
+              ref={fl => {
+                this.flatList = fl;
+              }}
+              style={styles.hScroll}
+              horizontal={true}
+              pagingEnabled={true}
+              data={photos}
+              initialNumToRender={1}
+              onViewableItemsChanged={({ viewableItems }) => {
+                const item = viewableItems[0];
+                if (!openProgress && item && item.key !== photoKey) {
+                  onPhotoKeyChange(item.key);
+                }
+              }}
+              renderItem={({ item }) => {
+                return (
+                  <PhotoPane
+                    onImageLayout={imageMeasurements => {
+                      item === photo &&
+                        console.log("measured layout", imageMeasurements);
+                      if (item === photo && !destImageMeasurements) {
+                        /* this.setState({
+                          destImageMeasurements: imageMeasurements
+                        }); */
+                      }
+                    }}
+                    onZoomEnd={this._onZoomEnd}
+                    onZoomStart={this._onZoomStart}
+                    openProgress={openProgress}
+                    onToggleOverlay={this.onToggleOverlay}
+                    onShowOverlay={this.onShowOverlay}
+                    onHideOverlay={this.onHideOverlay}
+                    photo={item}
+                    width={width}
+                    height={height}
+                  />
+                );
+              }}
+              getItemLayout={(data, index) => ({
+                length: width.__getValue(),
+                index,
+                offset: index * width.__getValue()
+              })}
+              initialScrollIndex={initialIndex}
+            />
+          </ScrollView>
           <Animated.View
             pointerEvents={isOverlayOpen ? "box-none" : "none"}
             style={[{ opacity: overlayOpacity }, StyleSheet.absoluteFill]}
@@ -518,7 +544,6 @@ export default class PhotoViewer extends React.Component {
   };
 
   open = (photos, key) => {
-    console.log("opening from tap ", key);
     this.setState(() => ({ photos, key }));
   };
 
@@ -537,7 +562,6 @@ export default class PhotoViewer extends React.Component {
   render() {
     const { photos, key, isOverlayOpen } = this.state;
     const { renderOverlay } = this.props;
-    console.log("photo viewer.. ", key);
     return (
       <View style={{ flex: 1 }}>
         {this.props.renderContent({ onPhotoOpen: this.open })}
