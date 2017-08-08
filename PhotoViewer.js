@@ -72,7 +72,6 @@ class PhotoPane extends React.Component {
       photo,
       width,
       height,
-      onImageLayout,
       openProgress,
       onZoomEnd,
       onZoomStart
@@ -107,70 +106,57 @@ class PhotoPane extends React.Component {
             }
           ]}
         >
-          <ScrollView
-            ref={sv => {
-              this._scrollView = sv;
-            }}
-            horizontal={false}
-            alwaysBounceHorizontal={true}
-            alwaysBounceVertical={true}
-            maximumZoomScale={3}
-            scrollEventThrottle={32}
-            onScroll={e => {
-              const { zoomScale } = e.nativeEvent;
-              if (this._isZooming && zoomScale === 1) {
-                onZoomEnd();
-                this._isZooming = false;
-              } else if (!this._isZooming && zoomScale !== 1) {
-                onZoomStart();
-                this._isZooming = true;
-              }
-            }}
-            style={[StyleSheet.absoluteFill]}
-            showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={false}
-            centerContent
-          >
-            <TouchableWithoutFeedback onPress={this._handlePaneTap}>
-              <Animated.View
+          <TouchableWithoutFeedback onPress={this._handlePaneTap}>
+            <Animated.View
+              style={{
+                width,
+                height,
+                justifyContent: "center",
+                alignItems: "center"
+              }}
+            >
+              <Animated.Image
                 style={{
-                  width,
-                  height,
-                  justifyContent: "center",
-                  alignItems: "center"
+                  width: photoSize.width,
+                  height: photoSize.height
                 }}
-              >
-                <Animated.Image
-                  style={{
-                    width: photoSize.width,
-                    height: photoSize.height
-                  }}
-                  ref={i => {
-                    this._image = i;
-                  }}
-                  onLayout={() => {
-                    this._image &&
-                      this._image
-                        .getNode()
-                        .measure((x, y, width, height, pageX, pageY) => {
-                          onImageLayout({
-                            width,
-                            height,
-                            x: pageX,
-                            y: pageY
-                          });
-                        });
-                  }}
-                  source={photo.source}
-                />
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </ScrollView>
+                ref={i => {
+                  this._image = i;
+                }}
+                source={photo.source}
+              />
+            </Animated.View>
+          </TouchableWithoutFeedback>
         </Animated.View>
       </Animated.View>
     );
   }
 }
+
+// <ScrollView
+//   ref={sv => {
+//     this._scrollView = sv;
+//   }}
+//   horizontal={false}
+//   alwaysBounceHorizontal={true}
+//   alwaysBounceVertical={true}
+//   maximumZoomScale={3}
+//   scrollEventThrottle={32}
+//   onScroll={e => {
+//     const { zoomScale } = e.nativeEvent;
+//     if (this._isZooming && zoomScale === 1) {
+//       onZoomEnd();
+//       this._isZooming = false;
+//     } else if (!this._isZooming && zoomScale !== 1) {
+//       onZoomStart();
+//       this._isZooming = true;
+//     }
+//   }}
+//   style={[StyleSheet.absoluteFill]}
+//   showsHorizontalScrollIndicator={false}
+//   showsVerticalScrollIndicator={false}
+//   centerContent
+// >
 
 class InnerViewer extends React.Component {
   state = {
@@ -178,9 +164,11 @@ class InnerViewer extends React.Component {
     height: new Animated.Value(SCREEN_HEIGHT),
     overlayOpacity: new Animated.Value(this.props.isOverlayOpen ? 1 : 0),
     openProgress: new Animated.Value(0),
+    dismissProgress: new Animated.Value(SCREEN_HEIGHT),
     srcImageMeasurements: null,
     destImageMeasurements: null,
-    canScrollHorizontal: true
+    canScrollHorizontal: true,
+    isFirstPass: true
   };
 
   componentDidMount() {
@@ -201,26 +189,28 @@ class InnerViewer extends React.Component {
     const screenAspectRatio = width / height;
     let destWidth = width;
     let destHeight = width / aspectRatio;
-    let destX = 0;
-    let destY = (height - photo.height) / 2;
     if (aspectRatio - screenAspectRatio < 0) {
       destHeight = height;
       destWidth = height * aspectRatio;
-      destY = 0;
-      destX = (width - photo.width) / 2;
     }
+    let destX = (width - destWidth) / 2;
+    let destY = (height - destHeight) / 2;
     const destImageMeasurements = {
       width: destWidth,
       height: destHeight,
       x: destX,
       y: destY
     };
-    console.log("computed layout", destImageMeasurements);
     const srcMeasured = measurer().then(measurements => {
-      this.setState({
-        srcImageMeasurements: measurements,
-        destImageMeasurements
-      });
+      this.setState(
+        {
+          srcImageMeasurements: measurements,
+          destImageMeasurements
+        },
+        () => {
+          this.setState({ isFirstPass: false });
+        }
+      );
     });
   }
 
@@ -285,7 +275,6 @@ class InnerViewer extends React.Component {
       overlay = renderOverlay({ photo, onClose });
     }
 
-    const initialIndex = photos.findIndex(p => p.key === photoKey);
     const {
       width,
       height,
@@ -293,7 +282,9 @@ class InnerViewer extends React.Component {
       openProgress,
       srcImageMeasurements,
       destImageMeasurements,
-      canScrollHorizontal
+      dismissProgress,
+      canScrollHorizontal,
+      isFirstPass
     } = this.state;
 
     let openingInitScale = 0;
@@ -325,6 +316,12 @@ class InnerViewer extends React.Component {
       openingInitTranslateX = translateInitX - translateDestX;
     }
 
+    const viewerOpacity =
+      openProgress ||
+      dismissProgress.interpolate({
+        inputRange: [0, height.__getValue(), height.__getValue() * 2],
+        outputRange: [0, 1, 0]
+      });
     return (
       <Animated.View
         style={[styles.outerViewer]}
@@ -349,63 +346,16 @@ class InnerViewer extends React.Component {
           }
         )}
       >
-        <Animated.View style={[styles.viewer, { opacity: openProgress }]}>
-          <ScrollView>
-            <FlatList
-              scrollEnabled={!openProgress && canScrollHorizontal}
-              ref={fl => {
-                this.flatList = fl;
-              }}
-              style={styles.hScroll}
-              horizontal={true}
-              pagingEnabled={true}
-              data={photos}
-              initialNumToRender={1}
-              onViewableItemsChanged={({ viewableItems }) => {
-                const item = viewableItems[0];
-                if (!openProgress && item && item.key !== photoKey) {
-                  onPhotoKeyChange(item.key);
-                }
-              }}
-              renderItem={({ item }) => {
-                return (
-                  <PhotoPane
-                    onImageLayout={imageMeasurements => {
-                      item === photo &&
-                        console.log("measured layout", imageMeasurements);
-                      if (item === photo && !destImageMeasurements) {
-                        /* this.setState({
-                          destImageMeasurements: imageMeasurements
-                        }); */
-                      }
-                    }}
-                    onZoomEnd={this._onZoomEnd}
-                    onZoomStart={this._onZoomStart}
-                    openProgress={openProgress}
-                    onToggleOverlay={this.onToggleOverlay}
-                    onShowOverlay={this.onShowOverlay}
-                    onHideOverlay={this.onHideOverlay}
-                    photo={item}
-                    width={width}
-                    height={height}
-                  />
-                );
-              }}
-              getItemLayout={(data, index) => ({
-                length: width.__getValue(),
-                index,
-                offset: index * width.__getValue()
-              })}
-              initialScrollIndex={initialIndex}
-            />
-          </ScrollView>
-          <Animated.View
-            pointerEvents={isOverlayOpen ? "box-none" : "none"}
-            style={[{ opacity: overlayOpacity }, StyleSheet.absoluteFill]}
-          >
-            {overlay}
-          </Animated.View>
-        </Animated.View>
+        {!isFirstPass &&
+          <Animated.View style={[styles.viewer, { opacity: viewerOpacity }]}>
+            {this._renderInnerInner()}
+            <Animated.View
+              pointerEvents={isOverlayOpen ? "box-none" : "none"}
+              style={[{ opacity: overlayOpacity }, StyleSheet.absoluteFill]}
+            >
+              {overlay}
+            </Animated.View>
+          </Animated.View>}
 
         {srcImageMeasurements &&
           destImageMeasurements &&
@@ -446,6 +396,98 @@ class InnerViewer extends React.Component {
             }}
           />}
       </Animated.View>
+    );
+  }
+  _renderInnerInner() {
+    const { photos, photoKey, onPhotoKeyChange } = this.props;
+    if (photos.length > 1) {
+      return this._renderFlatList();
+    } else {
+      const { openProgress, width, height } = this.state;
+      const photo = photos.find(p => p.key === photoKey);
+      return (
+        <Animated.ScrollView
+          pagingEnabled={true}
+          scrollEventThrottle={1}
+          onScroll={Animated.event(
+            [
+              {
+                nativeEvent: {
+                  contentOffset: { y: this.state.dismissProgress }
+                }
+              }
+            ],
+            {
+              useNativeDriver: true
+            }
+          )}
+          contentOffset={{ x: 0, y: height.__getValue() }}
+        >
+          <Animated.View style={{ width, height }} />
+          <PhotoPane
+            onZoomEnd={this._onZoomEnd}
+            onZoomStart={this._onZoomStart}
+            openProgress={openProgress}
+            onToggleOverlay={this.onToggleOverlay}
+            onShowOverlay={this.onShowOverlay}
+            onHideOverlay={this.onHideOverlay}
+            photo={photo}
+            width={width}
+            height={height}
+          />
+          <Animated.View style={{ width, height }} />
+        </Animated.ScrollView>
+      );
+    }
+  }
+  _renderFlatList() {
+    const { openProgress, canScrollHorizontal, width, height } = this.state;
+    const { photos, photoKey, onPhotoKeyChange } = this.props;
+    const photo = photos.find(p => p.key === photoKey);
+    const initialIndex = photos.findIndex(p => p.key === photoKey);
+    return (
+      <ScrollView>
+        <FlatList
+          scrollEnabled={
+            !openProgress && canScrollHorizontal && photos.length !== 1
+          }
+          ref={fl => {
+            this.flatList = fl;
+          }}
+          style={styles.hScroll}
+          horizontal={true}
+          pagingEnabled={true}
+          data={photos}
+          initialNumToRender={1}
+          onViewableItemsChanged={({ viewableItems }) => {
+            const item = viewableItems[0];
+            if (!openProgress && item && item.key !== photoKey) {
+              onPhotoKeyChange(item.key);
+            }
+          }}
+          renderItem={({ item }) => {
+            return (
+              <PhotoPane
+                onZoomEnd={this._onZoomEnd}
+                onZoomStart={this._onZoomStart}
+                openProgress={openProgress}
+                onToggleOverlay={this.onToggleOverlay}
+                onShowOverlay={this.onShowOverlay}
+                onHideOverlay={this.onHideOverlay}
+                photo={item}
+                width={width}
+                height={height}
+              />
+            );
+          }}
+          getItemLayout={(data, index) => ({
+            length: width.__getValue(),
+            index,
+            offset: index * width.__getValue()
+          })}
+          initialScrollIndex={initialIndex}
+        />
+      </ScrollView>
     );
   }
 }

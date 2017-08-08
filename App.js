@@ -66,16 +66,16 @@ const EXTRA_PHOTO = {
 };
 
 const FEED_ITEMS = [
+  {
+    key: "single",
+    caption: "single bear",
+    photos: [EXTRA_PHOTO]
+  },
   ...MAIN_PHOTOS,
   {
     key: "two",
     caption: "two grizzlies",
     photos: EXTRA_PHOTOS
-  },
-  {
-    key: "single",
-    caption: "single bear",
-    photos: [EXTRA_PHOTO]
   }
 ];
 
