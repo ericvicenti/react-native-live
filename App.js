@@ -28,10 +28,9 @@ const MAIN_PHOTOS = [
     key: "first",
     width: 300,
     height: 200,
-    source: { uri: "https://placebear.com/200/300", cache: "force-cache" },
+    source: { uri: "https://placebear.com/300/200", cache: "force-cache" },
     caption: "Grizzly"
   },
-
   {
     key: "third",
     width: 300,
@@ -95,10 +94,14 @@ class BearOverlay extends React.Component {
         </TouchableOpacity>
         <View style={styles.overlayButtons}>
           <TouchableOpacity onPress={() => {}} style={styles.button}>
-            <Text style={styles.buttonText}>Scary</Text>
+            <Text style={styles.buttonText}>
+              Scary {photo.key}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => {}} style={styles.button}>
-            <Text style={styles.buttonText}>Cuddly</Text>
+            <Text style={styles.buttonText}>
+              Cuddly {photo.key}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
