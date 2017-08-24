@@ -10,6 +10,8 @@ import ReactNative, {
   TouchableOpacity,
   ScrollView,
   Dimensions,
+  BackHandler,
+  Platform,
   TouchableWithoutFeedback
 } from "react-native";
 import PinchView from "./PinchView";
@@ -20,7 +22,6 @@ const SCREEN_HEIGHT = Dimensions.get("window").height;
 const ANIM_DURATION = 700;
 
 class PhotoPane extends React.Component {
-  _isZooming: boolean = false;
   _doubleTapTimeout: ?number = null;
   _handlePaneTap = e => {
     const {
@@ -34,51 +35,15 @@ class PhotoPane extends React.Component {
     if (this._doubleTapTimeout) {
       clearTimeout(this._doubleTapTimeout);
       this._doubleTapTimeout = null;
-      if (this._isZooming) {
-        onShowOverlay();
-        this._scrollView.scrollResponderZoomTo({
-          x: 0,
-          y: 0,
-          width: width.__getValue(),
-          height: height.__getValue()
-        });
-      } else {
-        // todo: zoom in on nativeEvent.pageX/Y
-        onHideOverlay();
-        this._scrollView.scrollResponderZoomTo({
-          x: width.__getValue() / 4,
-          y: height.__getValue() / 4,
-          width: width.__getValue() / 2,
-          height: height.__getValue() / 2
-        });
-      }
       return;
     }
     this._doubleTapTimeout = setTimeout(() => {
       this._doubleTapTimeout = null;
-      if (this._isZooming) {
-        this._scrollView &&
-          this._scrollView.scrollResponderZoomTo({
-            x: 0,
-            y: 0,
-            width: width.__getValue(),
-            height: height.__getValue()
-          });
-        onShowOverlay();
-      } else {
-        onToggleOverlay();
-      }
+      onToggleOverlay();
     }, 270);
   };
   render() {
-    const {
-      photo,
-      width,
-      height,
-      transitionProgress,
-      onZoomEnd,
-      onZoomStart
-    } = this.props;
+    const { photo, width, height, transitionProgress } = this.props;
     const aspectRatio = photo.width / photo.height;
     const maxWidth = width.__getValue();
     const maxHeight = height.__getValue();
@@ -135,31 +100,6 @@ class PhotoPane extends React.Component {
     );
   }
 }
-// // Pinch to zoom scroll view:
-// <ScrollView
-//   ref={sv => {
-//     this._scrollView = sv;
-//   }}
-//   horizontal={false}
-//   alwaysBounceHorizontal={true}
-//   alwaysBounceVertical={true}
-//   maximumZoomScale={3}
-//   scrollEventThrottle={32}
-//   onScroll={e => {
-//     const { zoomScale } = e.nativeEvent;
-//     if (this._isZooming && zoomScale === 1) {
-//       onZoomEnd();
-//       this._isZooming = false;
-//     } else if (!this._isZooming && zoomScale !== 1) {
-//       onZoomStart();
-//       this._isZooming = true;
-//     }
-//   }}
-//   style={[StyleSheet.absoluteFill]}
-//   showsHorizontalScrollIndicator={false}
-//   showsVerticalScrollIndicator={false}
-//   centerContent
-// >
 
 class InnerViewer extends React.Component {
   state = {
@@ -171,15 +111,19 @@ class InnerViewer extends React.Component {
     dismissScrollProgress: new Animated.Value(SCREEN_HEIGHT),
     inlineImageMeasurements: null,
     openImageMeasurements: null,
-    canScrollHorizontal: true,
     isFirstPass: true
   };
   _isOverlayVisible = this.props.isOverlayOpen;
 
   componentDidMount() {
     this._setSourceOpacity(this.state.openProgress);
-    const openImageMeasurements = this._getDestMeasurements();
-    const { measurer } = this.props.getSourceContext(this.props.photoKey);
+    const { photoKey } = this.props;
+    this._measurePhoto(photoKey);
+    BackHandler.addEventListener("hardwareBackPress", this.close);
+  }
+  _measurePhoto = photoKey => {
+    const openImageMeasurements = this._getDestMeasurements(photoKey);
+    const { measurer } = this.props.getSourceContext(photoKey);
     measurer().then(measurements => {
       this.setState(
         {
@@ -187,10 +131,16 @@ class InnerViewer extends React.Component {
           openImageMeasurements
         },
         () => {
-          this.setState({ isFirstPass: false });
+          this.state.isFirstPass && this.setState({ isFirstPass: false });
         }
       );
     });
+  };
+
+  componentWillUnmount() {
+    BackHandler.removeEventListener("hardwareBackPress", this.close);
+    const { setOpacity } = this.props.getSourceContext(this.props.photoKey);
+    setOpacity(1);
   }
 
   _setSourceOpacity(progress) {
@@ -198,13 +148,13 @@ class InnerViewer extends React.Component {
     setOpacity(
       progress.interpolate({
         inputRange: [0.005, 0.01, 0.99, 1],
-        outputRange: [1, 0, 0, 1]
+        outputRange: [1, 0, 0, 0]
       })
     );
   }
 
-  _getDestMeasurements() {
-    const { photos, photoKey } = this.props;
+  _getDestMeasurements(photoKey) {
+    const { photos } = this.props;
     const height = this.state.height.__getValue();
     const width = this.state.width.__getValue();
     const photo = photos.find(p => p.key === photoKey);
@@ -236,12 +186,6 @@ class InnerViewer extends React.Component {
   onToggleOverlay = () => {
     this.props.setOverlay(!this.props.isOverlayOpen);
   };
-  _onZoomStart = () => {
-    this.setState({ canScrollHorizontal: false });
-  };
-  _onZoomEnd = () => {
-    this.setState({ canScrollHorizontal: true });
-  };
   _animateOverlayOpacity(isVisible) {
     Animated.timing(this.state.overlayOpacity, {
       toValue: isVisible ? 1 : 0,
@@ -250,6 +194,32 @@ class InnerViewer extends React.Component {
     }).start();
     this._isOverlayVisible = isVisible;
   }
+  componentWillReceiveProps(nextProps) {
+    if (this.props.photoKey !== nextProps.photoKey) {
+      const lastInlinePhotoContext = this.props.getSourceContext(
+        this.props.photoKey
+      );
+      lastInlinePhotoContext.setOpacity(1);
+      const nextInlinePhotoContext = this.props.getSourceContext(
+        nextProps.photoKey
+      );
+      const { transitionProgress } = this._getTransitionProgress();
+      nextInlinePhotoContext.setOpacity(
+        transitionProgress.interpolate({
+          inputRange: [0.005, 0.01, 0.99, 1],
+          outputRange: [1, 0, 0, 0]
+        })
+      );
+      this.setState(
+        {
+          inlineImageMeasurements: null,
+          openImageMeasurements: null
+        },
+        () => this._measurePhoto(nextProps.photoKey)
+      );
+    }
+  }
+
   componentDidUpdate(lastProps, lastState) {
     const { isOverlayOpen } = this.props;
     if (lastProps.isOverlayOpen !== isOverlayOpen) {
@@ -257,6 +227,8 @@ class InnerViewer extends React.Component {
       this._isOverlayVisible = isOverlayOpen;
     }
     if (
+      // Handle initial photo opening:
+      this.state.openProgress &&
       !(lastState.inlineImageMeasurements && lastState.openImageMeasurements) &&
       this.state.openImageMeasurements &&
       this.state.inlineImageMeasurements
@@ -267,9 +239,16 @@ class InnerViewer extends React.Component {
         useNativeDriver: true
       }).start(() => {
         this.onShowOverlay();
-        this.setState({
-          openProgress: null
-        });
+        this.setState(
+          {
+            openProgress: null
+          },
+          () => {
+            this._setSourceOpacity(
+              this._getTransitionProgress().transitionProgress
+            );
+          }
+        );
       });
     }
   }
@@ -277,7 +256,8 @@ class InnerViewer extends React.Component {
     this.onHideOverlay();
     const dismissProgress = new Animated.Value(1);
     this._setSourceOpacity(dismissProgress);
-    const openImageMeasurements = this._getDestMeasurements();
+    const { photoKey } = this.props;
+    const openImageMeasurements = this._getDestMeasurements(photoKey);
     const { measurer } = this.props.getSourceContext(this.props.photoKey);
     const inlineImageMeasurements = await measurer();
     this.setState(
@@ -289,7 +269,8 @@ class InnerViewer extends React.Component {
       () => {
         Animated.timing(dismissProgress, {
           toValue: 0,
-          duration: ANIM_DURATION
+          duration: ANIM_DURATION,
+          useNativeDriver: true
         }).start(() => {
           this.props.onClose();
         });
@@ -327,7 +308,6 @@ class InnerViewer extends React.Component {
       inlineImageMeasurements,
       openImageMeasurements,
       dismissScrollProgress,
-      canScrollHorizontal,
       dismissProgress,
       isFirstPass
     } = this.state;
@@ -372,16 +352,34 @@ class InnerViewer extends React.Component {
         openImageMeasurements.x + openImageMeasurements.width / 2;
       openingInitTranslateX = translateInitX - translateDestX;
     }
-
-    const outerViewerOpacity = openProgress || 1;
-    let innerViewerOpacity = dismissScrollProgress.interpolate({
-      inputRange: [0, height.__getValue(), height.__getValue() * 2],
-      outputRange: [0, 1, 0]
+    const {
+      transitionProgress,
+      innerViewerOpacity,
+      outerViewerOpacity
+    } = this._getTransitionProgress();
+    const openingTranslateY = transitionProgress.interpolate({
+      inputRange: [0.01, 0.99],
+      outputRange: [openingInitTranslateY, 0]
     });
-    if (dismissProgress) {
-      innerViewerOpacity = dismissProgress;
-    }
-    const openCloseProgress = openProgress || dismissProgress;
+    const translateY = Animated.add(
+      openingTranslateY,
+      Animated.multiply(
+        dismissScrollProgress.interpolate({
+          inputRange: [0, height.__getValue(), height.__getValue() * 2],
+          outputRange: [300, 0, -300]
+        }),
+        dismissScrollProgress.interpolate({
+          inputRange: [
+            0,
+            height.__getValue() * 0.5,
+            height.__getValue(),
+            height.__getValue() * 1.5,
+            height.__getValue() * 2
+          ],
+          outputRange: [0, 1, 1, 1, 0]
+        })
+      )
+    );
     return (
       <Animated.View
         style={[styles.outerViewer]}
@@ -416,7 +414,7 @@ class InnerViewer extends React.Component {
                 { backgroundColor: "black", opacity: innerViewerOpacity }
               ]}
             />
-            {this._renderInnerInner()}
+            {this._renderDismissScrollView()}
             <Animated.View
               pointerEvents={isOverlayOpen ? "box-none" : "none"}
               style={[{ opacity: overlayOpacity }, StyleSheet.absoluteFill]}
@@ -427,8 +425,8 @@ class InnerViewer extends React.Component {
 
         {inlineImageMeasurements &&
           openImageMeasurements &&
-          openCloseProgress &&
           <Animated.View
+            pointerEvents="none"
             style={{
               position: "absolute",
               width: openImageMeasurements.width,
@@ -436,34 +434,35 @@ class InnerViewer extends React.Component {
               left: openImageMeasurements.x,
               top: openImageMeasurements.y,
               overflow: "hidden",
+              opacity: transitionProgress.interpolate({
+                inputRange: [0, 0.005, 0.995, 1],
+                outputRange: [0, 1, 1, 0]
+              }),
               transform: [
                 {
-                  translateX: openCloseProgress.interpolate({
+                  translateX: transitionProgress.interpolate({
                     inputRange: [0.01, 0.99],
                     outputRange: [openingInitTranslateX, 0]
                   })
                 },
                 {
-                  translateY: openCloseProgress.interpolate({
-                    inputRange: [0.01, 0.99],
-                    outputRange: [openingInitTranslateY, 0]
-                  })
+                  translateY
                 },
                 {
-                  scale: openCloseProgress.interpolate({
+                  scale: transitionProgress.interpolate({
                     inputRange: [0.01, 0.99],
                     outputRange: [openingInitScale, 1]
                   })
                 },
 
                 {
-                  scaleX: openCloseProgress.interpolate({
+                  scaleX: transitionProgress.interpolate({
                     inputRange: [0, 1],
                     outputRange: [inlineAspectX, 1]
                   })
                 },
                 {
-                  scaleY: openCloseProgress.interpolate({
+                  scaleY: transitionProgress.interpolate({
                     inputRange: [0, 1],
                     outputRange: [inlineAspectY, 1]
                   })
@@ -475,20 +474,16 @@ class InnerViewer extends React.Component {
               source={photo.source}
               style={{
                 ...StyleSheet.absoluteFillObject,
-                opacity: openCloseProgress.interpolate({
-                  inputRange: [0, 0.005, 0.995, 1],
-                  outputRange: [0, 1, 1, 0]
-                }),
                 backgroundColor: "white",
                 transform: [
                   {
-                    scaleX: openCloseProgress.interpolate({
+                    scaleX: transitionProgress.interpolate({
                       inputRange: [0, 1],
                       outputRange: [1 / inlineAspectX, 1]
                     })
                   },
                   {
-                    scaleY: openCloseProgress.interpolate({
+                    scaleY: transitionProgress.interpolate({
                       inputRange: [0, 1],
                       outputRange: [1 / inlineAspectY, 1]
                     })
@@ -500,7 +495,10 @@ class InnerViewer extends React.Component {
       </Animated.View>
     );
   }
-  _renderInnerInner() {
+  _renderDismissScrollView() {
+    if (Platform.OS === "android") {
+      return this._renderFlatList();
+    }
     const { photos, photoKey, onPhotoKeyChange } = this.props;
     const { width, height } = this.state;
     const photo = photos.find(p => p.key === photoKey);
@@ -543,21 +541,41 @@ class InnerViewer extends React.Component {
       </Animated.ScrollView>
     );
   }
-  _renderFlatList() {
+
+  _getTransitionProgress() {
     const {
       openProgress,
       dismissProgress,
-      canScrollHorizontal,
-      width,
+      dismissScrollProgress,
       height
     } = this.state;
+
+    const outerViewerOpacity = openProgress || 1;
+    let innerViewerOpacity = dismissScrollProgress.interpolate({
+      inputRange: [0, height.__getValue(), height.__getValue() * 2],
+      outputRange: [0, 1, 0]
+    });
+    if (dismissProgress) {
+      innerViewerOpacity = dismissProgress;
+    }
+    const transitionProgress =
+      openProgress || dismissProgress || innerViewerOpacity;
+
+    return {
+      innerViewerOpacity,
+      transitionProgress,
+      outerViewerOpacity
+    };
+  }
+  _renderFlatList() {
+    const { width, height, openProgress, dismissProgress } = this.state;
     const { photos, photoKey, onPhotoKeyChange } = this.props;
     const photo = photos.find(p => p.key === photoKey);
     const initialIndex = photos.findIndex(p => p.key === photoKey);
-    const transitionProgress = openProgress || dismissProgress;
+    const { transitionProgress } = this._getTransitionProgress();
     return (
       <FlatList
-        scrollEnabled={!transitionProgress && canScrollHorizontal}
+        scrollEnabled={!openProgress && !dismissProgress}
         ref={fl => {
           this.flatList = fl;
         }}
@@ -568,15 +586,18 @@ class InnerViewer extends React.Component {
         initialNumToRender={1}
         onViewableItemsChanged={({ viewableItems }) => {
           const item = viewableItems[0];
-          if (!transitionProgress && item && item.key !== photoKey) {
+          if (
+            !openProgress &&
+            !dismissProgress &&
+            item &&
+            item.key !== photoKey
+          ) {
             onPhotoKeyChange(item.key);
           }
         }}
         renderItem={({ item }) => {
           return (
             <PhotoPane
-              onZoomEnd={this._onZoomEnd}
-              onZoomStart={this._onZoomStart}
               transitionProgress={transitionProgress}
               onToggleOverlay={this.onToggleOverlay}
               onShowOverlay={this.onShowOverlay}

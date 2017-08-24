@@ -99,9 +99,7 @@ class BearOverlay extends React.Component {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => {}} style={styles.button}>
-            <Text style={styles.buttonText}>
-              Cuddly {photo.key}
-            </Text>
+            <Text style={styles.buttonText}>Cuddly</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -153,15 +151,6 @@ class App extends React.Component {
     );
   }
 }
-
-import PinchView from "./PinchView";
-
-// class App extends React.Component {
-//   render() {
-//     const { width, height } = Dimensions.get("window");
-//     return <PinchView photo={EXTRA_PHOTO} width={width} height={height} />;
-//   }
-// }
 
 module.exports = App;
 
